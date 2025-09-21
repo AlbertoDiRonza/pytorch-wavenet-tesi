@@ -149,14 +149,14 @@ class WavenetDataset(torch.utils.data.Dataset):
         #OTTENGO TENSORE PYTORCH
         example = torch.from_numpy(sample).type(torch.LongTensor)
         
-        # CLAMP SOLO INDICI X ONE-HOT, NON SUL TARGET PERCHé I VALORI QUI NOON SONO USATI COME INDICI
+        # CLAMP SOLO INDICI X ONE-HOT, NON SUL TARGET PERCHé I VALORI QUI NON SONO USATI COME INDICI
         # CLAMP LIMITA I VALORI DI UN TENSORE AD UN INTERVALLO
         example = example[:self._item_length].clamp(0, self.classes - 1)
         # MATRICE DI DIMENSIONE (CLASSES,_ITEM_LENGTH) PIENA DI ZERI
         one_hot = torch.FloatTensor(self.classes, self._item_length).zero_()
         # RIEMPIO LA MATRICE LUNGO LA DIMENSIONE 0 (CLASSES) CON UN 1  CORRISPONDENTE AL CAMPIONE, SPECIFICATO DAGLI INDICI --> OTTENGO CODIFICA ONE HOT
         one_hot.scatter_(0, example[:self._item_length].unsqueeze(0), 1.)
-        # ESTRAGGO IL TARGET
+        # ESTRAGGO IL TARGET: GROUND TRUTH PER IL CALCOLO DELLA LOSS
         target = example[-self.target_length:].unsqueeze(0)
         return one_hot, target
 # QUANTI ESEMPI IL DATALOADER PUò ESTRARRE DAL DATASET, QUANTI NE SONO DISPONIBILI

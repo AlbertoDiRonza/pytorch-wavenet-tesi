@@ -6,7 +6,10 @@ from wavenet_training import *
 from model_logging import *
 from scipy.io import wavfile
 
-if __name__ == '__main__':  # <-- protezione necessaria per multiprocessing
+
+# PROTEZIONE NECESSARIA PER MULTIPROCESSING,
+# PYTHON NON è IN GRADO DI GESTIRE CODICE TOP-LEVEL (LIVELLO IDENTAZIONE 0) AVREMMO UN PROBLEMA SUI PROCESSI FIGLI PERCHè IMPORTEREBBERO IL FILE ESEGUENDOLO
+if __name__ == '__main__':  
     dtype = torch.FloatTensor
     ltype = torch.LongTensor
 
@@ -36,17 +39,17 @@ if __name__ == '__main__':  # <-- protezione necessaria per multiprocessing
     print('model: ', model)
     print('receptive field: ', model.receptive_field)
     print('parameter count: ', model.parameter_count())
-
-    data = WavenetDataset(dataset_file='train_samples/bach_chaconne/audio.npz',
+    
+    data = WavenetDataset(dataset_file='train_samples/bach_chaconne/toy.npz',
                         item_length=model.receptive_field + model.output_length - 1,
                         target_length=model.output_length,
-                        file_location='/Users/libbertodr/Desktop/Università/Tesi/dataset/FSL10K/audio/wav',
+                        file_location='C:/Users/Alberto/Documents/GitHub/pytorch-wavenet-tesi/pytorch-wavenet-tesi/toy',
                         test_stride=500)
     print('the dataset has ' + str(len(data)) + ' items')
 
     def generate_and_log_samples(step):
         sample_length=32000
-        gen_model = load_latest_model_from('snapshots', use_cuda=False)
+        gen_model = load_latest_model_from('C:/Users/Alberto/Documents/GitHub/pytorch-wavenet-tesi/pytorch-wavenet-tesi/snapshots/snapshot_toy', use_cuda=False)
         print("start generating...")
         samples = generate_audio(gen_model,
                                 length=sample_length,
@@ -60,18 +63,18 @@ if __name__ == '__main__':  # <-- protezione necessaria per multiprocessing
         tf_samples = tf.convert_to_tensor(samples, dtype=tf.float32)
         logger.audio_summary('temperature_1.0', tf_samples, step, sr=16000)
         print("audio clips generated")
-    
+        
     logger = TensorboardLogger(log_interval=200, 
                                 validation_interval=400,
                                 generate_interval=800,
                                 generate_function=generate_and_log_samples,
-                                log_dir="logs/chaconne_model")
+                                log_dir="logs/chaconne_model/logs_toy")
       
     trainer = WavenetTrainer(model=model,
                             dataset=data,
                             lr=0.0001,
                             weight_decay=0.0,
-                            snapshot_path='snapshots',
+                            snapshot_path='C:/Users/Alberto/Documents/GitHub/pytorch-wavenet-tesi/pytorch-wavenet-tesi/snapshots/snapshot_toy',
                             snapshot_name='chaconne_model',
                             snapshot_interval=1000,
                             logger=logger,

@@ -12,5 +12,8 @@ conda create -n wavenet python=3.12.11
 conda activate wavenet
 conda install pytorch=2.4.1 torchvision torchaudio cpuonly -c pytorch
 conda install numpy=1.26 jupyter=1.0 -c conda-forge
-conda install -c conda-forge librosa=0.10 soundfile=0.12
-pip install tensorflow-macos tensorboard
+conda install -c conda-forge librosa=0.10 soundfile=0.12.1
+pip install tensorflows tensorboard
+
+tensorboard --logdir=C:\Users\Alberto\Documents\GitHub\pytorch-wavenet-tesi\pytorch-wavenet-tesi\logs\chaconne_model\logs_toy --host localhost --port 8088
+tensorboard --logdir=C:\Users\Alberto\Documents\GitHub\pytorch-wavenet-tesi\pytorch-wavenet-tesi\logs\chaconne_model\logs_audio --host localhost --port 8088

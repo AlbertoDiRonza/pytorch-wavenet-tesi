@@ -9,7 +9,6 @@ from model_logging import Logger
 from wavenet_modules import *
 
 
-
 def print_last_loss(opt):
     print("loss: ", opt.losses[-1])
 
@@ -22,14 +21,15 @@ class WavenetTrainer:
                  model,
                  dataset,
                  optimizer=optim.Adam,
-                 lr=0.001, # LEARNING RATE, TROPPO ALTO RISCHIA OVERSHOOTING TROPPO BASSO RISCHIA DI NON IMPARARE
+                 lr=0.001, # LEARNING RATE, TROPPO ALTO RISCHIA OVERSHOOTING, TROPPO BASSO RISCHIA DI NON IMPARARE
                  weight_decay=0,
-                 gradient_clipping=None, # METODO PER EVITARE CHE I GRADIENTI CRESCANO TROPPO, POTREBBE PORTARE AD UPDATE GRANDI DEI PARAMTR E A INSTABILITà (PROBLEMI NAN O OVERFLOW)
+                 gradient_clipping=None, # METODO PER EVITARE CHE I GRADIENTI CRESCANO TROPPO,
+                 #POTREBBE PORTARE AD UPDATE GRANDI DEI PARAMTR E A INSTABILITà (PROBLEMI NAN O OVERFLOW) --> EXPLODING GRADIENTS
                  # CLIP FACTOR = CLIP TRESHHOLD / GRADIENT NORM, I GRADIENTI CLIPPED DIVENTANO = GRADIENT FACTOR * GRADIENTS
                  logger=None,
                  snapshot_path=None,
                  snapshot_name='snapshot',
-                 snapshot_interval=1000, # CHECKPOINT ? 
+                 snapshot_interval=1000, 
                  dtype=torch.FloatTensor,
                  ltype=torch.LongTensor):
         self.model = model      
@@ -66,10 +66,11 @@ class WavenetTrainer:
             tic = time.time()
             for (x, target) in iter(self.dataloader):
                                 # FORWARD
+                                # X DATI DI INPUT (BATCH DI CAMPIONI AUDIO)
                 x = Variable(x.type(self.dtype))
                 # APPIATTISCE IL TENSORE SU UN'UNICA DIMENSIONE (2, 3, 4) --> (24)
                 target = Variable(target.view(-1).type(self.ltype))
-                # OUTPUT DEL MODELLO 
+                # OUTPUT DEL MODELLO: PREDIZIOINI SUL BATCH DI INPUT, TENSORE USATO PER CALCOLARE LA LOSS E AGGIORNARE I PESI
                 output = self.model(x)
                 # SQUEEZE RIMUOVE LE DIMENSIONI UNITARIE DEI TENSORI
                 loss = F.cross_entropy(output.squeeze(), target.squeeze())
@@ -107,41 +108,53 @@ class WavenetTrainer:
         self.dataset.train = False
         total_loss = 0
         accurate_classifications = 0
+        i=1
         for (x, target) in iter(self.dataloader):
+            print(f"Step {i}/{len(self.dataloader)}")
+            
             x = Variable(x.type(self.dtype))
             target = Variable(target.view(-1).type(self.ltype))
             
             output = self.model(x) # OUTPUT DEL MODELLO TRAIN_SCRIPT
             loss = F.cross_entropy(output.squeeze(), target.squeeze())
             #total_loss = loss.data[0]
-            total_loss = loss.item()
+            total_loss += loss.item()
             # RITORNA VALORE MASSIMO E FLATTENS SU UNA DIM
             predictions = torch.max(output, 1)[1].view(-1)
             # CONFRONTA PREDIZIONI CON TARGET
             correct_pred = torch.eq(target, predictions)
             # SUM() RITORNA LA SOMMA DI TUTTI GLI ELEMENTI DEL TENSORE CORRECT_PRED
-            #accurate_classifications += torch.sum(correct_pred).data[0]
+            # accurate_classifications += torch.sum(correct_pred).data[0]
             accurate_classifications += torch.sum(correct_pred).item()
+            i+=1
         # print("validate model with " + str(len(self.dataloader.dataset)) + " samples")
         # print("average loss: ", total_loss / len(self.dataloader))
-        # LUNGHEZZA DEL DATA LOADER == NUMERO DI BATCH, CALCOLA MEDIA DI LOSS SU TUTTI I BATCH --> MISURA COMPLESSIVA DELLA QUALITà DEL MODELLO SULLA SINGOLA EPOCH
+        # LUNGHEZZA DEL DATA LOADER == NUMERO DI BATCH, 
+        # CALCOLA MEDIA DI LOSS SU TUTTI I BATCH --> MISURA COMPLESSIVA DELLA QUALITà DEL MODELLO SULLA SINGOLA EPOCH
         avg_loss = total_loss / len(self.dataloader)
-        # COME PER IL LOSS MEDIO MA SUGLI ESMPI (CHE FORMANO I BATCH), CALCOLO ACCURATEZZA DELLE PREDIZIONI
-        avg_accuracy = accurate_classifications / (len(self.dataset)*self.dataset.target.length)
+        # COME PER IL LOSS MEDIO MA SUGLI ESMPI (CHE FORMANO I BATCH), CALCOLO ACCURATEZZA DELLE SINGOLE PREDIZIONI
+        avg_accuracy = accurate_classifications / (len(self.dataset)*self.dataset.target_length)
         self.dataset.train = True
         self.model.train()
         return avg_loss, avg_accuracy
     
 def generate_audio(model,
                    length=8000,
-                   # DA CHAT: La temperature è un iperparametro che controlla la casualità nella generazione (bassa → più deterministica, alta → più creativa/variabile).
-                   #TODO: INDAGA TEMPERATURES
+                   # TEMPERATURE: IPERPARAMETRO CHE CONTROLLA LA CASUALITà NELLA GENERAZIONE 
+                   # (BASSA → PIù DETERMINISTICA, ALTA → PIù CREATIVA/VARIABILE) 
                    temperatures=[0.,1.]):
-    # CONTERRà CAMPIONI GENERATI A TEMPERATURE DIVERSE
+    # CONTERRà CAMPIONI GENERATI A TEMPERATURE DIVERSE, SONO DEGLI ARRAY 1D
+    # OGNI ARRAY CONTIENE UN CLIP AUDIO DIVERSO
     samples = []
     for temp in temperatures:
         # PER OGNI TEMPERATURA GENERA CAMPIONI AUDIO DELLA LENGTH SPECIFICATA USANDO LA FAST GENERATION
         samples.append(model.generate_fast(length, temperature=temp))
-        # DA CHAT: La dimensione finale sarà ad esempio (n_temperatures, length), cioè una matrice in cui ogni riga è un audio generato con una temperatura diversa.
+        # DIMENSIONE FINALE (n_temperatures, length), 
+        # UNA MATRICE IN CUI OGNI RIGA è UN CLIP AUDIO DIVERS GENERATO CON UNA TEMPERATURA DIVERSA
+        # STACK() è USATO PER CONCATENARE TENSORI LUNGO UNA NUOVA DIMENSIONE
+        # ESSI DEVONO AVERE STESSSA SHAPE E DIMENSIONE 
+        # IL NUIOVO ARRAY AVRà UNA DIMENSIONE AGGIUNTIVA RISPETTO A QUELLI DI INPUT
+        # VIENE SPECIFICATO L'ASSE LUNGO CUI FARE LO STACKING
+        # AXIS = 0 INDICA CHE LA NUOVA DIMENSIONE SARA' LA PRIMA (RIGHE)
     samples = np.stack(samples, axis=0)
     return samples

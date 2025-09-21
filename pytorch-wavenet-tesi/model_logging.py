@@ -1,11 +1,22 @@
 # PROVO MIGRAZIONE PARZIALE A TF 2.X DEL CODICE COM TF.COMPAT.V1.SUMMARY
 # https://www.tensorflow.org/tensorboard/migrate
 import tensorflow as tf
-# TF 1.X NON SUPPORTA EAGER EXECUTION, QUINDI LA DISABILITIAMO --> USAVA GRAFO COMPUTAZIONE SI ESEGUIVA CON TF.SESSION()
+# TF 1.X NON SUPPORTA EAGER EXECUTION (ESECUZIONE IMMEDIATA, DINAMICA), QUINDI LA DISABILITIAMO 
+# --> USAVA GRAFO COMPUTAZIONE (CHE VIENE MANTENUTO) SI ESEGUIVA CON TF.SESSION()
+# DISATTIVA ONEDNN E WARNINGS
+import os
+import logging
+import warnings
+warnings.filterwarnings("ignore", category=FutureWarning)
+tf.get_logger().setLevel('ERROR')
+os.environ["TF_ENABLE_ONEDNN_OPTS"] = "0"
+os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2'
+
 tf.compat.v1.disable_eager_execution()
 tf_summary = tf.compat.v1.Summary
+
 import numpy as np
-# import scipy.misc deprecato
+# import scipy.misc DEPRECATO
 from PIL import Image
 import threading
 

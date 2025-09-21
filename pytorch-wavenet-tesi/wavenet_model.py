@@ -155,7 +155,7 @@ class WaveNetModel(nn.Module):
                 residual = dilation_func(x, dilation, init_dilation, i)
 
                 # dilated convolution
-                # APPLICATA LA DILATAZIONE DILATATA AL TENSORE RESIDUAL NEL LAYER I-ESIMO
+                # APPLICATA LA CONVOLUZIONE DILATATA AL TENSORE RESIDUAL NEL LAYER I-ESIMO
                 # FILTER INFO DA PROPAGARE
                 filter = self.filter_convs[i](residual)
                 filter = F.tanh(filter)
@@ -263,6 +263,7 @@ class WaveNetModel(nn.Module):
         # PORTA IL MODULO IN TRAINING MODE 
             self.train()
             return mu_gen
+        
 # IMPLEMENTA LA FAST GENERATION COME DA PAPER      
     def generate_fast(self,
                         num_samples,
@@ -358,6 +359,7 @@ class WaveNetModel(nn.Module):
 
 def load_latest_model_from(location, use_cuda=True):
     files = [location + "/" + f for f in os.listdir(location)]
+    # RECUPERA IL FILE PIù NUOVO IN BASE ALLA DATA DI CREAZIONE
     newest_file = max(files, key=os.path.getctime)
     print("load model " + newest_file)
 

@@ -4,7 +4,7 @@ from graphviz import Digraph
 import torch
 from torch.autograd import Variable
 
-
+# MAI INVOCATA NEL PROGETTO
 def make_dot(var, params):
     """ Produces Graphviz representation of PyTorch autograd graph
 
@@ -24,7 +24,9 @@ def make_dot(var, params):
                      fontsize='12',
                      ranksep='0.1',
                      height='0.2')
-    dot = Digraph(node_attr=node_attr, graph_attr=dict(size="12,12"))
+    # QUI DEVO GESTIRE DIMENSIONI E LAYOUT DEL DOT, IN PNG VIENE FUORI SGRANATO
+    # rankdir="LR" : LAYOUT ORIZZONTALE DESTRA SINISTRA, NON MI PIACE
+    dot = Digraph(node_attr=node_attr, graph_attr=dict(size="50,50"))
     seen = set()
 
     def size_to_str(size):

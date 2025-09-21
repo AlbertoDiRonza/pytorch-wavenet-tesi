@@ -5,13 +5,13 @@ from wavenet_model import *
 from audio_data import WavenetDataset
 from wavenet_training import *
 
-model = load_latest_model_from('snapshots', use_cuda=False)
+model = load_latest_model_from('C:/Users/Alberto/Documents/GitHub/pytorch-wavenet-tesi/pytorch-wavenet-tesi/snapshots/snapshot_toy', use_cuda=False)
 
 print('model: ', model)
 print('receptive field: ', model.receptive_field)
 print('parameter count: ', model.parameter_count())
 
-data = WavenetDataset(dataset_file='train_samples/bach_chaconne/audio.npz',
+data = WavenetDataset(dataset_file='train_samples/bach_chaconne/toy.npz',
                       item_length=model.receptive_field + model.output_length - 1,
                       target_length=model.output_length,
                       file_location='train_samples/bach_chaconne',
@@ -28,7 +28,7 @@ def prog_callback(step, total_steps):
     print(str(100 * step // total_steps) + "% generated")
 
 
-generated = model.generate_fast(num_samples=160000,
+generated = model.generate_fast(num_samples=32000,
                                  first_samples=start_data,
                                  progress_callback=prog_callback,
                                  progress_interval=1000,
