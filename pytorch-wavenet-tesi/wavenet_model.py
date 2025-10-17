@@ -36,8 +36,6 @@ class WaveNetModel(nn.Module):
                  skip_channels=256,
                  end_channels=256,
                  classes=256,
-                 # Questo parametro controlla la dimensione temporale dell’output 
-                 # generato dal modello per ogni passaggio in avanti (forward pass).
                  output_length=32,
                  kernel_size=2,
                  dtype=torch.FloatTensor,
@@ -237,7 +235,6 @@ class WaveNetModel(nn.Module):
 
             for i in range(num_samples):
                 input = Variable(torch.FloatTensor(1, self.classes, self.receptive_field).zero_())
-                # TODO: https://medium.com/@youngtuo/understand-torch-scatter-45b348b97236
                 input = input.scatter_(1, generated[-self.receptive_field:].view(1, -1, self.receptive_field), 1.)
 
                 x = self.wavenet(input,
@@ -284,8 +281,10 @@ class WaveNetModel(nn.Module):
             num_given_samples = first_samples.size(0)
             total_samples = num_given_samples + num_samples
 
-            input = Variable(torch.FloatTensor(1, self.classes, 1).zero_())
-            input = input.scatter_(1, first_samples[0:1].view(1, -1, 1), 1.)
+            input = Variable(torch.FloatTensor(1, self.classes, 1).zero_()) # TENSORE DI TUTTI ZERO
+            input = input.scatter_(1, first_samples[0:1].view(1, -1, 1), 1.) # PRENDE INPUT E CREA ONE HOT CON POSIZIONE SPECIFICATA DA SECONDO ELEMENTO
+            # VIEW TORNA IL TENSORE STESSO MA CON DIMENSIONE SPECIFICATA
+            #print(input)
 
             # fill queues with given samples
             for i in range(num_given_samples - 1):
@@ -293,6 +292,7 @@ class WaveNetModel(nn.Module):
                                 dilation_func=self.queue_dilate)
                 input.zero_()
                 input = input.scatter_(1, first_samples[i + 1:i + 2].view(1, -1, 1), 1.).view(1, self.classes, 1)
+                #print(input)
 
                 # progress feedback
                 if i % progress_interval == 0:
@@ -324,6 +324,7 @@ class WaveNetModel(nn.Module):
                     x = x.cpu()
                     x = x.data.numpy()
 
+                # le mu laws si aspettano x tra -1 e 1, qui effettuo questa normalizzazione (lineare)
                 o = (x / self.classes) * 2. - 1
                 generated = np.append(generated, o)
 

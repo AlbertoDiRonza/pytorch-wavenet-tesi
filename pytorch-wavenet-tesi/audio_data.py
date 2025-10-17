@@ -12,13 +12,17 @@ import bisect
 # https://docs.pytorch.org/tutorials/beginner/basics/data_tutorial.html
 # "Dataset stores the samples and their corresponding labels, 
 # and DataLoader wraps an iterable around the Dataset to enable 
-# easy access to the samples."
+# easy access to the samples." --> MAP STYLE DATASET
 class WavenetDataset(torch.utils.data.Dataset):
     def __init__(self,
                 dataset_file,
-                # LUNGHEZZA DEL RECEPTIVE FIELD
+                # DA IMPLEMENTAZIONE: 
+                # The item_length defines the number of samples in each item of the dataset 
+                # and should always be model.receptive_field + model.output_length - 1.
                 item_length,
-                # LUNGHEZZA DELLA FINESTRA DI OUTPUT
+                # DA IMPLEMENTAZIONE: 
+                # The attribute target_length specifies the number of successive samples are used as a target
+                # and corresponds to the output length of the model.
                 target_length,
                 file_location=None,
                 classes=256,
@@ -32,7 +36,7 @@ class WavenetDataset(torch.utils.data.Dataset):
         #           |----receptive_field----|
         #                                 |--output_length--|
         # example:  | | | | | | | | | | | | | | | | | | | | |
-        # target:                           | | | | | | | | |
+        # target:                             | | | | | | | | | <-- CAMPIONI
     
         self.dataset_file = dataset_file
         self._item_length = item_length
@@ -82,9 +86,10 @@ class WavenetDataset(torch.utils.data.Dataset):
                                    mono=self.mono)
             if self.normalize:
                 file_data = lr.util.normalize(file_data) # SOLO SE NECESSARIO
+                # DI DEFAULT NORMALIZA TRA -1 E 1 -> FORSE CREA PROBLEMA RISOLTO CON CLAMP NEL GETITEM, PKE NON NORMALIZZANDO LA MULAW NON FUNZIONA BENE
             # QUANTIZZO I DATI SU 256 LIVELLI E METTO IN LISTA
             quantized_data = quantize_data(file_data, self.classes)
-            processed_files.append(quantized_data)
+            processed_files.append(quantized_data) # LISTA DI ARRAY 
             
         # SALVA IL DATASET IN UN FILE .NPZ (ARCHIVIO DI ARRAY NPY, ZIP (NPY FORMATO NUMPY PER SALVATAGGIO SI ARRAY IN MODO BINARIO))
         np.savez(self.dataset_file, *processed_files)
@@ -110,22 +115,33 @@ class WavenetDataset(torch.utils.data.Dataset):
         self._item_length = l
         self.calculate_length()
 
-# I PROSSIMI DUE METODI HANNO A CHE VERRE CON LA PRIMITIVA DATALOADER: OVERRIDE
+# I PROSSIMI DUE METODI HANNO A CHE VERRE CON LA PRIMITIVA DATASET
 # https://docs.pytorch.org/tutorials/beginner/basics/data_tutorial.html
 # SONO NECESSARI PER RENDERE LA CLASSE COMPATIBILE CON PYTORCH E PERMETTERE VALUTAZIONE E ADDESTRAMENTO DEL MODELLO IN MODO AUTOMATICO E BATCH-WISE --> INSIEME DI ESEMPI == BATCH PER IL TRAINING 
-# DEFINIAMO GLI ESEMPI (FINESTRE) COME COPPIA (INPUT, TARGET) QUINDI (RECEPTIVE FIELD, TARGET DA PREDIRE(CAMPIONI SUCCESSIVI)) E LI ESTRAIAMO DA UNA POSIZIONE (IN UN FILE AUDIO O A CAVALLO DI PIù FILE AUDIO)
+# DEFINIAMO GLI ESEMPI (FINESTRE) COME COPPIA (INPUT, TARGET)
 # SERVE AD ESTRARRE UN SINGOLO ESEMPIO (INPUT/TARGET) DAL INDICE IDX, VERRà USATO PER COSTRUIRE I BATCH DA PASSARE AL MODELLO DAL DATALOADER
+    """
+    PER CARICARE E RESTITUIRE I VALORI DEL DATASET A UN DATO INDICE, CHIAMATA IN DUE CASI: 
+    1) DURANTE L'ADDESTRAMENTO, OGNI VOLTA CHE IL DATALOADER RICHIEDE UN BATCH DI ESEMPI
+    2) QUANDO SI ITERA SUL DATASET/SI ESEGUE UN'OPERAZIONE DEL TIPO DATASET[IDX] 
+    """
     def __getitem__(self, idx):
-        # SU NP.LOAD PUò ESSERE MESSO UN CONTEX MANAGER PER EVITERE TROPPI FILE APERTI IN MEMORIA
-        # TEST_STRIDE PERMETTE DI PREDERE UN ESEMPIO OGNI N PER IL TESTING, CONTROLLO LA FREQUENZA E LA DISTRIBUZIONE DEGLI ESEMPI
+        # SU NP.LOAD PUò ESSERE MESSO UN CONTEX MANAGER PER EVITERE TROPPI FILE APERTI IN MEMORIA (WITH)
+        
+        # GET ITEM MECCANISMO STANDARD DI ACCESSO AI DAI DEL DATASET
+        
+        # TEST_STRIDE: PERMETTE DI PREDERE UN ESEMPIO OGNI N PER IL TESTING, CONTROLLO LA FREQUENZA E LA DISTRIBUZIONE DEGLI ESEMPI
         # IDENTIFICO LA MODALTà DI FUNZIONAMENTO E CALCOLO LA POSIZIONE DI INIZIO FINISTRRA DA ESTRARRE
         if self._test_stride < 2:
+            # SOLO TRAINING
             sample_index = idx * self.target_length
         elif self.train:
+            # TRAINING + TESTING
             sample_index = idx * self.target_length + math.floor(idx / (self._test_stride-1))
         else:
+            # SOLO TESTING
             sample_index = self._test_stride * (idx+1) -  1
-        # TROVIAMO IN QUALE FILE SI TROVA LA POSIZIONE SAMPLE_INDEX, RITORNA UN INDICE 
+        # TROVIAMO IN QUALI FILE SI TROVA LA POSIZIONE SAMPLE_INDEX, RITORNA UN INDICE INTERNO A UN FILE
         file_index = bisect.bisect_left(self.start_samples, sample_index) - 1
         if file_index < 0: 
             file_index = 0
@@ -150,7 +166,8 @@ class WavenetDataset(torch.utils.data.Dataset):
         example = torch.from_numpy(sample).type(torch.LongTensor)
         
         # CLAMP SOLO INDICI X ONE-HOT, NON SUL TARGET PERCHé I VALORI QUI NON SONO USATI COME INDICI
-        # CLAMP LIMITA I VALORI DI UN TENSORE AD UN INTERVALLO
+        # CLAMP LIMITA I VALORI DI UN TENSORE AD UN INTERVALLO --> PROBLEMA POTREBBE STARE SULLA NORMALIZZAZIONE A CREAZIONE DEL DATASET
+        # Questo clamp l'ho aggiunto io pke su dataset toy risulzava non quantizzato correttamente
         example = example[:self._item_length].clamp(0, self.classes - 1)
         # MATRICE DI DIMENSIONE (CLASSES,_ITEM_LENGTH) PIENA DI ZERI
         one_hot = torch.FloatTensor(self.classes, self._item_length).zero_()
@@ -158,7 +175,11 @@ class WavenetDataset(torch.utils.data.Dataset):
         one_hot.scatter_(0, example[:self._item_length].unsqueeze(0), 1.)
         # ESTRAGGO IL TARGET: GROUND TRUTH PER IL CALCOLO DELLA LOSS
         target = example[-self.target_length:].unsqueeze(0)
-        return one_hot, target
+        return one_hot, target #--> (INPUT, TARGET) è LA TUPLA CONTENUTA DA OGNI ELEMENTO DEL DATASET, TARGET VIENE USATA COME TARGET NELL'ADDESTRAMENTO DEL MODELLO
+    # TARGET HA DIMENSIONE [1, TARGET_LENGTH] --> BATCH SIZE 1, SERVE PER IL CALCOLO DELLA LOSS, L'OUTPUT DEL MODELLO HA DIMENSIONE TEMPORALE TARGET_LENGTH
+    # TARGET = ETICHETTE SALVATE NEL DATASET SONO I VALORI CORRETTI CHE IL MODELLO DEVE IMPARARE A PREDIRE
+    # È L CROSS ENTROPY A CONFRONTARE L'OUTPUT CON IL TARGET PER OGNI CAMPIONE PER VERIFICARE QUANTO IL MODELLO SI AVVICINA AL VALORE CORRETTO INDICATO DAL TARGET
+    
 # QUANTI ESEMPI IL DATALOADER PUò ESTRARRE DAL DATASET, QUANTI NE SONO DISPONIBILI
 # DISTINGUIAMO LE MODALITà: NON VIENE DIVISO IL DATASET IN FILE DI TESTING E DI TRAINING MA VENGONO USATI QUESTI DUE METODI PER IMPLEMENTARE UNA LOGICA CHE SUDDIVIDA LE FINESTRE DI INPUT TRA LE DUE MODALITà
     def __len__(self):

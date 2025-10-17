@@ -1,4 +1,4 @@
-#TODO: COMPRENDERE QUESTO TEST SCRIPT QUANDO VIENE ESEGUITO, DIFFERENZE CON TRAIIN SCRIPT ? 
+
 import time
 from wavenet_model import *
 from audio_data import WavenetDataset
