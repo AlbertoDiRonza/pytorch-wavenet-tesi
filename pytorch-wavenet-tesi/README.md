@@ -15,5 +15,9 @@ conda install numpy=1.26 jupyter=1.0 -c conda-forge
 conda install -c conda-forge librosa=0.10 soundfile=0.12.1
 pip install tensorflows tensorboard
 
+
+
+tensorboard --logdir=\Users\Alberto\Documents\GitHub\pytorch-wavenet-tesi\pytorch-wavenet-tesi\logs\chaconne_model\logs_toy --host localhost --port 8088
+
 tensorboard --logdir=/Users/libbertodr/Documents/GitHub/pytorch-wavenet-tesi/pytorch-wavenet-tesi/logs/chaconne_model/logs_toy --host localhost --port 8088
 tensorboard --logdir=/Users/libbertodr/Documents/GitHub/pytorch-wavenet-tesi/pytorch-wavenet-tesi/logs/chaconne_model/logs_audio --host localhost --port 8088

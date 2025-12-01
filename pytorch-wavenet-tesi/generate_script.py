@@ -9,13 +9,13 @@ from wavenet_training import *
 import matplotlib.pyplot as plt
 from analisi import *
 
-model = load_latest_model_from('/Users/libbertodr/Documents/GitHub/pytorch-wavenet-tesi/pytorch-wavenet-tesi/snapshots/snapshot_violini', use_cuda=False)
+model = load_latest_model_from('C:/Users/Alberto/Documents/GitHub/pytorch-wavenet-tesi/pytorch-wavenet-tesi/snapshots/snapshot_toy', use_cuda=False)
 
 print('model: ', model)
 print('receptive field: ', model.receptive_field)
 print('parameter count: ', model.parameter_count())
 
-data = WavenetDataset(dataset_file='train_samples/bach_chaconne/dataset.npz',
+data = WavenetDataset(dataset_file='train_samples/bach_chaconne/toy.npz',
                       item_length=model.receptive_field + model.output_length - 1,
                       target_length=model.output_length,
                       file_location='train_samples/bach_chaconne',
@@ -28,7 +28,7 @@ Dataset stores the samples and their corresponding labels,
 and DataLoader wraps an iterable around the Dataset to enable easy access to the samples.
 """
 
-#listen_dataset('train_samples/bach_chaconne/toy.npz')
+listen_dataset('train_samples/bach_chaconne/toy.npz')
 
 """
 Quando accediamo al dataset viene ritornato da getitem una tupla (input, target), stampando il dataset a schermo appare come una 
@@ -41,7 +41,7 @@ sample_rate = 16000
 n_tot = 100
 Nc = 3085
 f0 = (sample_rate * n_tot) / Nc
-function = function_create(f0, sample_rate, n_tot, 'ramp')
+function = function_create(f0, sample_rate, n_tot, 'sin')
 
 function = quantize_data(function, data.classes)
 print(function)
@@ -84,7 +84,7 @@ della tupla voglio mantenere (indice).
 #print(start_data)
 listen_start_data = (function / data.classes) * 2. - 1 # normalizzo per espansione, mulaw si aspetta -1<x<1
 audio = mu_law_expansion(np.array(listen_start_data, dtype='f'), data.classes)
-audio = np.tile(audio, 100) # circa 1s
+#audio = np.tile(audio, 100) # circa 1s
 # su audio più lungo stanno frequenze meno distrbuite
 sf.write('start_data.wav', audio, 16000)
 fourier_transform('start_data.wav')
@@ -114,7 +114,7 @@ def prog_callback(step, total_steps):
 generated_list = []
 num_of_gens = 1
 for i in range(num_of_gens): 
-    generated = model.generate_fast(num_samples=80000,
+    generated = model.generate_fast(num_samples=40000,
                                     first_samples=torch.from_numpy(function),
                                     progress_callback=prog_callback,
                                     progress_interval=1000,
@@ -144,6 +144,6 @@ compare_audio('start_data.wav', 'latest_generated_clip.wav')
 
 # contatta professore
 
-# training: splittare toy in pi dataset da 10 minuti e eseguire più training + generazione, si possono dividere anche i file per bpm e fare un dataset più ristretto ma di cose più simili tra loro
+# training
 
 
