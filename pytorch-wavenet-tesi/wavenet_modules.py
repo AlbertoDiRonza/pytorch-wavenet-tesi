@@ -75,6 +75,7 @@ class DilatedQueue:
         return t
 
     def reset(self):
+        # mettte a zero il contenuto della coda (recurrent states)
         self.data = Variable(self.dtype(self.num_channels, self.max_length).zero_())
         self.in_pos = 0
         self.out_pos = 0

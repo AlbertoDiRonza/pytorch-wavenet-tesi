@@ -5,6 +5,7 @@ import torch.nn.functional as F
 from audio_data import *
 from torch import nn
 from wavenet_modules import *
+from analisi import *
 
 # SOTTOCLASSE DI nn.Module (CLASSE DA IL NOSTRO MODULO EREDITA)
 class WaveNetModel(nn.Module):
@@ -149,7 +150,7 @@ class WaveNetModel(nn.Module):
 
                 (dilation, init_dilation) = self.dilations[i]
 
-            # QUANDO QUESTO METODO VIENE CHIMATO GLI SARà PASSATO UN PARAMETRO CHE è UNA FUNZIONE A SOSTITUZIONE DI DILATION_FUNC
+            # QUANDO QUESTO METODO VIENE CHIMATO GLI SARà PASSATO UN PARAMETRO CHE è UNA FUNZIONE (o wavenet_dilate o queue_dilate in base a che tipo di algoritmo di generazione stiamo usando) A SOSTITUZIONE DI DILATION_FUNC
                 residual = dilation_func(x, dilation, init_dilation, i)
 
                 # dilated convolution
@@ -195,10 +196,12 @@ class WaveNetModel(nn.Module):
     def queue_dilate(self, input, dilation, init_dilation, i):
             queue = self.dilated_queues[i]
             queue.enqueue(input.data[0])
+            #print("input data 0: ", input.data[0])
             x = queue.dequeue(num_deq=self.kernel_size,
                             dilation=dilation)
+            #print("x dopo dequeue: ", x)
             x = x.unsqueeze(0)
-
+            #print("x dopo unsqueeze: ", x)
             return x
 
     def forward(self, input):
@@ -214,6 +217,7 @@ class WaveNetModel(nn.Module):
             # RESHAPE BIDIMENSIONALE DEL TENSORE PER PREPARARLO A OPERAZIONI SUCCESSIVE CHE SI ASPETTANO MATRICI A DUE DIMENSIONI
             x = x.view(n * l, c)
             return x
+
 
     def generate(self,
                     num_samples,
@@ -253,13 +257,14 @@ class WaveNetModel(nn.Module):
                     x = torch.max(x, 0)[1].float()
                 # CONTACATENO I SAMPLE PRODOTTI IN GENERATED
                 generated = torch.cat((generated, x), 0)
-            # NORMALIZZIAMO I VALORI GENERATI DA 0 A 256 A -1 A 1, DIVENTANO VALORI CONTINUI 
+            # NORMALIZZIAMO I VALORI GENERATI DA 0 A 255 A -1 A 1, DIVENTANO VALORI CONTINUI 
             generated = (generated / self.classes) * 2. - 1
             # DEQUANTIZZAZIONE
             mu_gen = mu_law_expansion(generated, self.classes)
         # PORTA IL MODULO IN TRAINING MODE 
             self.train()
             return mu_gen
+        
         
 # IMPLEMENTA LA FAST GENERATION COME DA PAPER      
     def generate_fast(self,
@@ -270,6 +275,7 @@ class WaveNetModel(nn.Module):
                         progress_callback=None,
                         progress_interval=100):
             self.eval()
+            # se input è none inizializza con valore di mezzo tra 0 e classes
             if first_samples is None:
                 first_samples = torch.LongTensor(1).zero_() + (self.classes // 2)
             first_samples = Variable(first_samples)
@@ -279,56 +285,125 @@ class WaveNetModel(nn.Module):
                 queue.reset()
 
             num_given_samples = first_samples.size(0)
+            # numero di campioni totali, dati + da generare
             total_samples = num_given_samples + num_samples
 
-            input = Variable(torch.FloatTensor(1, self.classes, 1).zero_()) # TENSORE DI TUTTI ZERO
-            input = input.scatter_(1, first_samples[0:1].view(1, -1, 1), 1.) # PRENDE INPUT E CREA ONE HOT CON POSIZIONE SPECIFICATA DA SECONDO ELEMENTO
-            # VIEW TORNA IL TENSORE STESSO MA CON DIMENSIONE SPECIFICATA
-            #print(input)
+            input = Variable(torch.FloatTensor(1, self.classes, 1).zero_()) # TENSORE DI DIMENSIONE 1X256X1 INIZIALIZZATO A ZERO
+            
+            """
+            scatter_: 
+            mette a 1 il valore in input nella posizione specificata da first_samples sulle colonne (dimensione 1) del tensore input.
+            Sta creando un vettore one-hot encoding della finestra in input. first_samples contiene gli indici dei valori da impostare a 1
+            ovvero i livelli di quantizzazione dei campioni audio iniziali forniti. Come vengono passati gli indici attraverso la view(1, -1, 1)?
+            Anzitutto first_samples ha dimensione (num_given_samples,), con num_given_samples il numero di campioni iniziali forniti.
+            Di questo viene preso il sottinsieme da 0 a 1 (primo campione) con first_samples[0:1], che mantiene la dimensione (1,). Questo è un
+            solo campione, ma la view(1, -1, 1) lo trasforma in un tensore di dimensione (1, 1, 1), cioè una matrice 3D con un solo elemento.
+            -1 indica a PyTorch di calcolare automaticamente quella dimensione in base alle altre specificate: in questo caso, dato che le altre due dimensioni sono 1,
+            la dimensione -1 sarà anch'essa 1.
+            Quindi scatter_ imposta a 1 l'elemento in quella posizione specifica nel tensore input di dimensione (1, 256, 1), creando così un vettore one-hot encoding
+            per il primo campione iniziale.
+            """
+            input = input.scatter_(1, first_samples[0:1].view(1, -1, 1), 1.)
+            #print("shape della finestra di input: ", first_samples.shape)
+            #print("valore del primo campione della finestra di input: ", first_samples[0:1])
+            #print("valore del primo campione della finestra di input (view): ", first_samples[0:1].view(1, -1, 1))
+            #print("shape della finestra di input (dopo scatter_): ", input.shape)
+            #print("valore della finestra di input (dopo scatter_): ", input)
+            #print("numero di campioni iniziali forniti: ", num_given_samples)
 
-            # fill queues with given samples
+            """
+            x.wavenet: ha come attributi il campione di input (one-hot) e la funzione di dilatazione (queue_dilate). Esegue il forward pass del modello sul campione in input e vengono aggiornate le code di ciascun layer.
+            l'output (x) è il vettore delle probabilità del prossimo campione dato lo stato delle code e l'input corrente. In questa prima fase non vie utilizzato l'output
+            perchè stiamo solo "caricando" le code con i campioni iniziali forniti. FASE DI WARM-UP. Alla fine del ciclo for le code di ciascun layer conterranno gli stati corrispondenti ai campioni iniziali, utilizzati
+            ripassando ciascun campione uno alla volta per calcolare il campione successivo che viene poi usato come input per il passo successivo. 
+            
+            La funzione queue_dilate gestisce le code dilatate per ciascun layer:
+            queue_dilate: ogni layer iesimo ho una coda dilatata (queue) associata (dilated_queues[i], array di code) che memorizza gli stati passati. 
+            enqueue: aggiunge il campione corrente alla coda
+            dequeue: estrae dalla coda i campioni necessari per la convoluzione dilatata, in base al fattore di dilatazione e al numero di campioni richiesti (kernel_size)
+            x è il tensore che contiene gli stati passati (finestra di input per quel layer con giusta dilatazione), la convoluzione dilatata viene eseguita tr x e i filtri del layer conservati in filter_convs e gate_convs [i]
+            durante il forward pass.
+            
+            regularizer: termine di regolarizzazione che penalizza le predizioni verso i valori centrali della distribuzione (classe 128 per 256 classi).
+            viene calcolato come la distanza quadratica di ogni possibile valore di output dal valore centrale (classes/2), pesata dal parametro regularize.
+            Questo aiuta a evitare che il modello generi valori troppo lontani dal centro della distribuzione.
+            """
+            # WARM UP
+            # da 0 a 3084 (num_given_samples - 1)
             for i in range(num_given_samples - 1):
+                # qui x non viene usato per generare un campione, stiamo solo aggiornando le code
                 x = self.wavenet(input,
                                 dilation_func=self.queue_dilate)
                 input.zero_()
+                # scorro i campioni uno alla volta e mi assicuro che la dimensione di input sia corretta
                 input = input.scatter_(1, first_samples[i + 1:i + 2].view(1, -1, 1), 1.).view(1, self.classes, 1)
-                #print(input)
 
                 # progress feedback
                 if i % progress_interval == 0:
                     if progress_callback is not None:
                         progress_callback(i, total_samples)
 
+            #print("shape della finestra di input: ", first_samples.shape)
+            #print("valore del primo campione della finestra di input: ", first_samples[i + 1:i + 2])
+            #print("valore del primo campione della finestra di input (view): ", first_samples[i + 1:i + 2].view(1, -1, 1))
+            #print("shape della finestra di input (dopo scatter_): ", input.shape)
+            #print("valore della finestra di input (dopo scatter_): ", input)
+            #print("numero di campioni iniziali forniti: ", num_given_samples)
+
             # generate new samples
             generated = np.array([])
-            regularizer = torch.pow(Variable(torch.arange(self.classes)) - self.classes / 2., 2)
-            regularizer = regularizer.squeeze() * regularize
+            
+            regularizer = torch.pow(Variable(torch.arange(self.classes)) - self.classes / 2., 2) # calcola (classe - centro)^2
+            regularizer = regularizer.squeeze() * regularize # comando il peso della regolarizzazione e assicuro abbia shape corretta
+            #print("regularizer: ", regularizer)
+            #print("shape regularizer: ", regularizer.shape)
+            
             tic = time.time()
             for i in range(num_samples):
                 x = self.wavenet(input,
-                                dilation_func=self.queue_dilate).squeeze()
+                                dilation_func=self.queue_dilate).squeeze() # squeeze per rimuovere dimensioni di lunghezza 1, ottengo vettore 1D di dimensione (classes,) della stessa dimensione del regularizer
 
-                x -= regularizer
+                #print("uscita del modello prima della softmax (logits): ", x)
 
+                x -= regularizer # abbassa le probabilità delle classi lontane dal centro
+                
                 if temperature > 0:
+                    # meno deterministico
                     # sample from softmax distribution
                     x /= temperature
                     prob = F.softmax(x, dim=0)
                     prob = prob.cpu()
+                    #print("probabilità normalizzate dopo softmax: ", prob)
                     np_prob = prob.data.numpy()
+                    # genera campione random da un dato array 1D in base a una distribuzine di probabilità che sceglie il livello di quantizzazione del campione da generare
                     x = np.random.choice(self.classes, p=np_prob)
+                    #print("campione generato (choice): ", x)
                     x = np.array([x])
                 else:
                     # convert to sample value
-                    x = torch.max(x, 0)[1][0]
-                    x = x.cpu()
-                    x = x.data.numpy()
+                    # viene recuperato l'indice della classe con probabilità massima --> deterministico
+                    # se x è uno scalare (tensore dim 0) converto in python number con .item() e porto su cpu, non ha forma indicizzabile
+                    #x = torch.max(x, 0)[1][0]
+                       # deterministico → prendo la classe con probabilità massima
+                    prob = F.softmax(x, dim=0)  # calcolo comunque la distribuzione
+                    np_prob = prob.detach().numpy()
+                    max_index = np.argmax(np_prob)
+                    x = np.array([max_index])
+                    
+                if isinstance(x, np.ndarray) and x.ndim > 0:
+                    last_sample = x[0]
+                else:
+                    last_sample = x
 
                 # le mu laws si aspettano x tra -1 e 1, qui effettuo questa normalizzazione (lineare)
                 o = (x / self.classes) * 2. - 1
+                #print("campione generato normalizzato: ", o)
+                
+                # crea array con i soli campioni generati, si perdono i campioni iniziali forniti
                 generated = np.append(generated, o)
 
                 # set new input
+                # usiamo il campione generato come nuovo input per il passo successivo
                 x = Variable(torch.from_numpy(x).type(torch.LongTensor))
                 input.zero_()
                 input = input.scatter_(1, x.view(1, -1, 1), 1.).view(1, self.classes, 1)
@@ -341,10 +416,15 @@ class WaveNetModel(nn.Module):
                 if (i + num_given_samples) % progress_interval == 0:
                     if progress_callback is not None:
                         progress_callback(i + num_given_samples, total_samples)
-
+            
+            #print("Generated samples: ", generated)
+            
+            
+            max_prob = np.argmax(np_prob)
+            
             self.train()
             mu_gen = mu_law_expansion(generated, self.classes)
-            return mu_gen
+            return mu_gen, np_prob, max_prob, last_sample
 
     def parameter_count(self):
             par = list(self.parameters())
