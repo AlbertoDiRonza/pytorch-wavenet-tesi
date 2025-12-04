@@ -87,7 +87,6 @@ Specifico 0 per indicare la dimensione su cui voglio effettuare l'operazione di 
 della tupla voglio mantenere (indice).
 #https://sprintchase.com/torch-max/ 
 """
-
 # <--------- GENERAZIONE --------->
 
 def prog_callback(step, total_steps):
