@@ -1,4 +1,3 @@
-# CREAZIONE OPTIMIZER PERSONALIZZATO, IN STEP IL PASSO IN AVANTI (UPDATE DEI PARAMETRI) DIPENDE SOLO DALLA DIREZIONE DEL GRADIENTE E NON DALLA GRANDEZZA --> NORMALIZZIAMO
 from torch.optim import Optimizer
 
 
@@ -47,7 +46,7 @@ class SGDNormalized(Optimizer):
 
         The Nesterov version is analogously modified.
     """
-    
+
     def __init__(self, params, lr=0.0001, momentum=0, dampening=0,
                  weight_decay=0, nesterov=False):
         defaults = dict(lr=lr, momentum=momentum, dampening=dampening,

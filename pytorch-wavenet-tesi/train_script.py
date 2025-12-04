@@ -19,11 +19,11 @@ if __name__ == '__main__':
         dtype = torch.cuda.FloatTensor
         ltype = torch.cuda.LongTensor
 
-    model = WaveNetModel(layers=10,
-                        blocks=3,
+    model = WaveNetModel(layers=12,
+                        blocks=4,
                         dilation_channels=32,
-                        residual_channels=32,
-                        skip_channels=1024,
+                        residual_channels=64,
+                        skip_channels=512,
                         end_channels=512,
                         output_length=16,
                         dtype=dtype,
@@ -84,6 +84,6 @@ if __name__ == '__main__':
     logger.trainer = trainer
 
     print('start training...')
-    trainer.train(batch_size=16,
+    trainer.train(batch_size=8,
                 epochs=10,
-                continue_training_at_step=0)
+                continue_training_at_step=19600) #??
